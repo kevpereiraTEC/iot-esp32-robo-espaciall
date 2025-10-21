@@ -1,0 +1,8 @@
+O objetivo principal da etapa é a integração do dispositivo de IoT (o robô) com um Backend Python e um Banco de Dados, focando na Camada de Serviço
+
+Os objetivos detalhados dessa etapa são:
+
+Registro no Banco de Dados
+- Versionamento
+- Desenvolvimento do Backend
+- Consulta de Dados
