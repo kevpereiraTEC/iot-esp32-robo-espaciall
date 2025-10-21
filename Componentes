@@ -1,0 +1,17 @@
+Componentes ESP Físico:
+
+ESP32 1
+Sensor de Temperatura 1
+Fotorresistor 1
+Motor 2
+Sensor de presença (PIR) 1
+LED Verde 1
+LED Vermelho 1
+---
+Componentes ESP Controlador:
+
+ESP32 1
+Joystick 1
+LED Vermelho 1
+LED Verde 1
+Botão 1
