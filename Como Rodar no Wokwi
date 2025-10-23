@@ -1,0 +1,8 @@
+Como rodar programa no Wokwi:
+
+1. Acesse o site do Wokwi: wokwi.com.
+2. Crie um novo projeto ou abra um existente.
+3. Cole o código do README.md para o seu código na área do editor.
+5. Adicione componentes ao seu circuito seguindo a página COMPONENTES clicando no botão azul "+" no lado direito da tela.
+6. Monte o circuito conectando os componentes à placa.
+7. Clique no botão verde "Iniciar Simulação" (ou o ícone de "play") para ver seu projeto rodar. 
