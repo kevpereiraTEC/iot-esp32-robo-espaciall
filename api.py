@@ -1,125 +1,101 @@
+from flask import Flask, request, jsonify
 import sqlite3
-import uvicorn
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import List
 from datetime import datetime
 
-# --- Configurações ---
-DB_FILE = "robo_explorador.db"
-app = FastAPI(
-    title="API Robô Explorador",
-    description="Backend para receber e consultar dados do ESP32 (Etapa 03)."
-)
+# Correção: __name__ (dois underscores de cada lado)
+app = Flask(__name__)
 
-# --- Modelo de Dados (Pydantic) ---
-# Define a estrutura de dados (JSON) que o ESP32 deve enviar via POST
-# O 'id' e 'timestamp' não são incluídos aqui, pois serão gerados pelo servidor/banco.
-class LeituraSensores(BaseModel):
-    temperatura_c: float
-    umidade_pct: float
-    luminosidade: int
-    presenca: int
-    probabilidade_vida: float
+# ---- Função para conectar no banco ---- #
+def conectar_banco():
+    """Conecta ao banco de dados SQLite."""
+    # O banco será criado na mesma pasta do script
+    return sqlite3.connect("robo_explorador.db") 
 
-# --- Funções do Banco de Dados ---
 
-def get_db_connection():
-    """Cria e retorna uma conexão com o banco de dados SQLite."""
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row # Permite acessar os resultados por nome da coluna
-    return conn
+# ---- Criar tabela se não existir ---- #
+def criar_tabela():
+    """Verifica e cria a tabela 'leituras' se ela não existir."""
+    conn = conectar_banco()
+    cursor = conn.cursor()
+    
+    # SQL para criar a tabela conforme o roteiro 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS leituras (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            temperatura_c REAL,
+            umidade_pct REAL,
+            luminosidade INTEGER,
+            presenca INTEGER,
+            probabilidade_vida REAL
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-# --- ENDPOINTS DA API (Rotas) ---
+# Executa a criação da tabela assim que o servidor inicia
+criar_tabela()
 
-@app.get("/")
-def read_root():
-    """Endpoint raiz para verificar se a API está online."""
-    return {"status": "API do Robô Explorador está online!"}
 
-@app.post("/leituras")
-async def criar_leitura(leitura: LeituraSensores):
+# ---- API: Receber dados do ESP32 via POST ---- #
+@app.route("/leituras", methods=["POST"])
+def adicionar_leitura():
     """
     Endpoint para RECEBER dados (HTTP POST) do ESP32 e salvar no banco.
-    Atende ao requisito do Passo 9: Criar API... com endpoint /leituras
+    
     """
-    # Gera o timestamp no momento do recebimento
-    timestamp_atual = datetime.now().isoformat()
+    dados = request.get_json()
     
-    # SQL para inserir os dados na tabela 'leituras'
-    sql = """
-    INSERT INTO leituras (timestamp, temperatura_c, umidade_pct, luminosidade, presenca, probabilidade_vida)
-    VALUES (?, ?, ?, ?, ?, ?)
-    """
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Executa o SQL com os dados recebidos do ESP32 (leitura.*)
-        cursor.execute(sql, (
-            timestamp_atual,
-            leitura.temperatura_c,
-            leitura.umidade_pct,
-            leitura.luminosidade,
-            leitura.presenca,
-            leitura.probabilidade_vida
-        ))
-        conn.commit()
-    
-    except sqlite3.Error as e:
-        print(f"Erro no banco de dados: {e}")
-        # Se falhar, retorna um erro HTTP 500
-        raise HTTPException(status_code=500, detail=f"Erro ao inserir dados: {e}")
-    
-    finally:
-        if conn:
-            conn.close()
-            
-    print(f"Dados recebidos e salvos: {leitura.model_dump()}")
-    # Retorna os dados que foram salvos (incluindo o timestamp gerado)
-    return {"status": "Dados salvos com sucesso!", "dados_salvos": leitura, "timestamp": timestamp_atual}
+    # Pega o timestamp enviado pelo ESP32, ou gera um novo se não for enviado
+    timestamp = dados.get("timestamp", datetime.now().isoformat())
 
-@app.get("/leituras", response_model=List[dict])
-async def get_ultimas_leituras():
+    conn = conectar_banco()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO leituras (timestamp, temperatura_c, umidade_pct, luminosidade, presenca, probabilidade_vida)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        timestamp,
+        dados["temperatura_c"],
+        dados["umidade_pct"],
+        dados["luminosidade"],
+        dados["presenca"],
+        dados["probabilidade_vida"]
+    ))
+    conn.commit()
+    conn.close()
+    
+    print(f"Dados recebidos e salvos: {dados}")
+    return jsonify({"status": "sucesso", "dados_recebidos": dados}), 201
+
+
+# ---- API: Consultar últimas 100 leituras ---- #
+@app.route("/leituras", methods=["GET"])
+def listar_leituras():
     """
     Endpoint para CONSULTAR (HTTP GET) as últimas 100 leituras do banco.
-    Atende ao requisito do Passo 9: Adicionar rota GET /leituras
+    
     """
+    conn = conectar_banco()
+    # Retorna os dados como dicionários (mais fácil de converter para JSON)
+    conn.row_factory = sqlite3.Row 
+    cursor = conn.cursor()
     
-    # SQL para selecionar as últimas 100 leituras, ordenadas pela mais recente (id DESC)
-    sql = "SELECT * FROM leituras ORDER BY id DESC LIMIT 100"
+    cursor.execute("SELECT * FROM leituras ORDER BY id DESC LIMIT 100")
     
-    leituras_lista = []
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(sql)
-        
-        # Converte os resultados do banco (sqlite3.Row) para dicionários
-        for row in cursor.fetchall():
-            leituras_lista.append(dict(row))
-            
-    except sqlite3.Error as e:
-        print(f"Erro no banco de dados: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao consultar dados: {e}")
+    # Converte os resultados (sqlite3.Row) para uma lista de dicionários
+    dados_formatados = [dict(row) for row in cursor.fetchall()]
     
-    finally:
-        if conn:
-            conn.close()
-            
-    print(f"Consulta GET realizada. Retornando {len(leituras_lista)} leituras.")
-    return leituras_lista
+    conn.close()
+    
+    print(f"Consulta GET realizada. Retornando {len(dados_formatados)} leituras.")
+    return jsonify(dados_formatados)
 
-# --- Execução do Servidor ---
+
+# ---- Rodar o servidor ---- #
+# Correção: __name__ e __main__ (dois underscores de cada lado)
 if __name__ == "__main__":
-    """
-    Inicia o servidor Uvicorn.
-    --host 0.0.0.0 torna o servidor acessível na sua rede local (para o ESP32).
-    --port 5000 é a porta padrão (pode ser outra).
-    --reload faz o servidor reiniciar automaticamente se você salvar o arquivo (ótimo para desenvolvimento).
-    """
-    print("Iniciando servidor FastAPI em http://0.0.0.0:5000")
+    print("Iniciando servidor Flask em http://0.0.0.0:5000")
     print("O ESP32 deve enviar dados para http://[IP_DO_SEU_PC]:5000/leituras")
     print("Use CTRL+C para parar o servidor.")
-    uvicorn.run("api:app", host="0.0.0.0", port=5000, reload
+    app.run(host="0.0.0.0", port=5000, debug=True)
