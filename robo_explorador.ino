@@ -6,9 +6,9 @@
 #include <ESP32Servo.h>
 
 // --- DEFINIÇÕES DE PINOS SENSORES ---
-#define DHTPIN 2
+#define DHTPIN 4
 #define DHTTYPE DHT11
-#define LDR_PIN 35
+#define LDR_PIN 32
 #define PIR_PIN 19
 #define LED_VERDE 26
 #define LED_VERMELHO 27
@@ -17,8 +17,14 @@ DHT dht(DHTPIN, DHTTYPE);
 
 // --- CONFIGURAÇÕES DE REDE ---
 const char* ssid = "artur";
-const char* password = "123456789";
+const char* password = "12345678";
 
+// --- CONFIGURAÇÃO FIREBASE ---
+// Substitua <SEU-PROJECT-ID> pelo seu host real
+const char* FIREBASE_HOST = "https://iotservico1-4bd6e-default-rtdb.firebaseio.com";
+String firebasePath = "/leituras.json";
+
+// --- CONFIGURAÇÃO BACKEND ---
 const char* backendURL = "http://10.127.2.191:5000/leituras";
 
 // --- CONFIGURAÇÕES DO CALLMEBOT ---
@@ -54,13 +60,53 @@ void sendMessage(String message) {
   http.end();
 }
 
+// --- FUNÇÃO: Envia dados para o Firebase Realtime Database via REST ---
+void enviarParaFirebase(float temperatura, float umidade, int luz, int presenca, float prob) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    String url = String(FIREBASE_HOST) + firebasePath;
+
+    String json = "{";
+    json += "\"timestamp\":{ \".sv\":\"timestamp\" },";
+    json += "\"temperatura_c\":" + String(temperatura, 2) + ",";
+    json += "\"umidade_pct\":" + String(umidade, 2) + ",";
+    json += "\"luminosidade\":" + String(luz) + ",";
+    json += "\"presenca\":" + String(presenca) + ",";
+    json += "\"probabilidade_vida\":" + String(prob, 2);
+    json += "}";
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+
+    int httpResponseCode = http.POST(json);
+
+    if (httpResponseCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      Serial.println("✅ Dados enviados para Firebase com sucesso!");
+      Serial.print("Resposta Firebase: ");
+      Serial.println(payload);
+    } else {
+      Serial.print("❌ Falha ao enviar para Firebase. Código HTTP: ");
+      Serial.println(httpResponseCode);
+      String err = http.getString();
+      Serial.print("Resposta: ");
+      Serial.println(err);
+    }
+
+    http.end();
+  } else {
+    Serial.println("❌ WiFi desconectado. Não foi possível enviar os dados para Firebase.");
+  }
+}
+
+// --- FUNÇÃO: Envia dados para o Backend Python ---
 void enviarParaBackend(float temperatura, float umidade, int luz, int presenca, float prob) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
     http.begin(backendURL);
     http.addHeader("Content-Type", "application/json");
 
-    // --- Criar JSON --- 
     String json = "{";
     json += "\"temperatura_c\":" + String(temperatura, 2) + ",";
     json += "\"umidade_pct\":" + String(umidade, 2) + ",";
@@ -80,10 +126,9 @@ void enviarParaBackend(float temperatura, float umidade, int luz, int presenca, 
 
     http.end();
   } else {
-    Serial.println("❌ WiFi desconectado. Não foi possível enviar os dados.");
+    Serial.println("❌ WiFi desconectado. Não foi possível enviar os dados para backend.");
   }
 }
-
 
 // --- FUNÇÃO PARA CONEXÃO WI-FI ---
 void setup_wifi() {
@@ -185,9 +230,11 @@ void loop() {
   Serial.print(prob);
   Serial.println("%");
 
+  // --- Envia dados tanto ao Firebase quanto ao Backend ---
+  enviarParaFirebase(temperatura, umidade, luz, presenca, prob);
   enviarParaBackend(temperatura, umidade, luz, presenca, prob);
 
-  // --- Decisão ---
+  // --- Decisão visual e alerta ---
   if (prob <= 75) {
     digitalWrite(LED_VERDE, HIGH);
     digitalWrite(LED_VERMELHO, LOW);
